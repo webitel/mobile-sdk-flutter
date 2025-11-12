@@ -164,6 +164,10 @@ final class GrpcConnect {
                   'Error response received: ${decodedResponse.err.message}');
             case ResponseType.disconnect:
               handleConnectionClosure(err: 'gRPC stream was terminated');
+            case ResponseType.chatComplete:
+              log.info(
+                  'Processing response type: ${ResponseType.chatComplete}');
+              throw UnimplementedError();
           }
         }
       } else {

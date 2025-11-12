@@ -17,4 +17,7 @@ enum ResponseType {
 
   ///gRPC stream disconnected
   disconnect,
+
+  ///chat completed
+  chatComplete,
 }

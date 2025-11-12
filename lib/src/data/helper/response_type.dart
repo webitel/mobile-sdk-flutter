@@ -36,6 +36,8 @@ final class ResponseTypeHelper {
       return ResponseType.memberLeft;
     } else if (update.data.canUnpackInto(UpdateDisconnect())) {
       return ResponseType.disconnect;
+    } else if (update.data.canUnpackInto(UpdateChatComplete())) {
+      return ResponseType.chatComplete;
     } else {
       throw Exception('Unknown type');
     }
