@@ -16,7 +16,6 @@ dependencies:
   fixnum: ^1.1.0
   logging: ^1.2.0
   injectable: ^2.4.1
-  protobuf: ^4.1.0
   uuid: ^4.4.0
   grpc: ^4.0.0
 
@@ -26,5 +25,3 @@ dev_dependencies:
   lints: ^4.0.0
   json_serializable: ^6.8.0
   injectable_generator: ^2.6.2
-
-
