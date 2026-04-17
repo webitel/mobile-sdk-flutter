@@ -1,13 +1,15 @@
+// This is a generated file - do not edit.
 //
-//  Generated code. Do not modify.
-//  source: portal/media.proto
-//
-// @dart = 2.12
+// Generated from portal/media.proto.
+
+// @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
-// ignore_for_file: constant_identifier_names, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_final_fields
-// ignore_for_file: unnecessary_import, unnecessary_this, unused_import
+// ignore_for_file: constant_identifier_names
+// ignore_for_file: curly_braces_in_flow_control_structures
+// ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: unused_import
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
@@ -31,9 +33,25 @@ const UploadRequest$json = {
   '1': 'UploadRequest',
   '2': [
     {'1': 'pid', '3': 1, '4': 1, '5': 9, '9': 0, '10': 'pid'},
-    {'1': 'new', '3': 2, '4': 1, '5': 11, '6': '.webitel.portal.UploadRequest.Start', '9': 0, '10': 'new'},
+    {
+      '1': 'new',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.UploadRequest.Start',
+      '9': 0,
+      '10': 'new'
+    },
     {'1': 'part', '3': 3, '4': 1, '5': 12, '9': 0, '10': 'part'},
-    {'1': 'kill', '3': 4, '4': 1, '5': 11, '6': '.webitel.portal.UploadRequest.Abort', '9': 0, '10': 'kill'},
+    {
+      '1': 'kill',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.UploadRequest.Abort',
+      '9': 0,
+      '10': 'kill'
+    },
   ],
   '3': [UploadRequest_Start$json, UploadRequest_Abort$json],
   '8': [
@@ -45,7 +63,14 @@ const UploadRequest$json = {
 const UploadRequest_Start$json = {
   '1': 'Start',
   '2': [
-    {'1': 'file', '3': 1, '4': 1, '5': 11, '6': '.webitel.portal.InputFile', '10': 'file'},
+    {
+      '1': 'file',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.InputFile',
+      '10': 'file'
+    },
     {'1': 'progress', '3': 2, '4': 1, '5': 8, '10': 'progress'},
   ],
 };
@@ -67,9 +92,33 @@ final $typed_data.Uint8List uploadRequestDescriptor = $convert.base64Decode(
 const UploadProgress$json = {
   '1': 'UploadProgress',
   '2': [
-    {'1': 'part', '3': 1, '4': 1, '5': 11, '6': '.webitel.portal.UploadProgress.Partial', '9': 0, '10': 'part'},
-    {'1': 'stat', '3': 2, '4': 1, '5': 11, '6': '.webitel.portal.UploadProgress.Complete', '9': 0, '10': 'stat'},
-    {'1': 'end', '3': 3, '4': 1, '5': 11, '6': '.webitel.portal.UpdateDisconnect', '9': 0, '10': 'end'},
+    {
+      '1': 'part',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.UploadProgress.Partial',
+      '9': 0,
+      '10': 'part'
+    },
+    {
+      '1': 'stat',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.UploadProgress.Complete',
+      '9': 0,
+      '10': 'stat'
+    },
+    {
+      '1': 'end',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.UpdateDisconnect',
+      '9': 0,
+      '10': 'end'
+    },
   ],
   '3': [UploadProgress_Partial$json, UploadProgress_Complete$json],
   '8': [
@@ -90,8 +139,22 @@ const UploadProgress_Partial$json = {
 const UploadProgress_Complete$json = {
   '1': 'Complete',
   '2': [
-    {'1': 'file', '3': 1, '4': 1, '5': 11, '6': '.webitel.chat.File', '10': 'file'},
-    {'1': 'hash', '3': 2, '4': 3, '5': 11, '6': '.webitel.portal.UploadProgress.Complete.HashEntry', '10': 'hash'},
+    {
+      '1': 'file',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.chat.File',
+      '10': 'file'
+    },
+    {
+      '1': 'hash',
+      '3': 2,
+      '4': 3,
+      '5': 11,
+      '6': '.webitel.portal.UploadProgress.Complete.HashEntry',
+      '10': 'hash'
+    },
   ],
   '3': [UploadProgress_Complete_HashEntry$json],
 };
@@ -121,7 +184,15 @@ final $typed_data.Uint8List uploadProgressDescriptor = $convert.base64Decode(
 const UploadMedia$json = {
   '1': 'UploadMedia',
   '2': [
-    {'1': 'file', '3': 1, '4': 1, '5': 11, '6': '.webitel.portal.InputFile', '9': 0, '10': 'file'},
+    {
+      '1': 'file',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.InputFile',
+      '9': 0,
+      '10': 'file'
+    },
     {'1': 'data', '3': 2, '4': 1, '5': 12, '9': 0, '10': 'data'},
   ],
   '8': [
@@ -152,9 +223,25 @@ final $typed_data.Uint8List getFileRequestDescriptor = $convert.base64Decode(
 const MediaFile$json = {
   '1': 'MediaFile',
   '2': [
-    {'1': 'file', '3': 1, '4': 1, '5': 11, '6': '.webitel.chat.File', '9': 0, '10': 'file'},
+    {
+      '1': 'file',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.chat.File',
+      '9': 0,
+      '10': 'file'
+    },
     {'1': 'data', '3': 2, '4': 1, '5': 12, '9': 0, '10': 'data'},
-    {'1': 'end', '3': 3, '4': 1, '5': 11, '6': '.webitel.portal.UpdateDisconnect', '9': 0, '10': 'end'},
+    {
+      '1': 'end',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.UpdateDisconnect',
+      '9': 0,
+      '10': 'end'
+    },
   ],
   '8': [
     {'1': 'media_type'},
@@ -166,4 +253,3 @@ final $typed_data.Uint8List mediaFileDescriptor = $convert.base64Decode(
     'CglNZWRpYUZpbGUSKAoEZmlsZRgBIAEoCzISLndlYml0ZWwuY2hhdC5GaWxlSABSBGZpbGUSFA'
     'oEZGF0YRgCIAEoDEgAUgRkYXRhEjQKA2VuZBgDIAEoCzIgLndlYml0ZWwucG9ydGFsLlVwZGF0'
     'ZURpc2Nvbm5lY3RIAFIDZW5kQgwKCm1lZGlhX3R5cGU=');
-

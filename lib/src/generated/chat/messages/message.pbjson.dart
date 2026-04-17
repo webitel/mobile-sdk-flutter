@@ -1,13 +1,15 @@
+// This is a generated file - do not edit.
 //
-//  Generated code. Do not modify.
-//  source: chat/messages/message.proto
-//
-// @dart = 2.12
+// Generated from chat/messages/message.proto.
+
+// @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
-// ignore_for_file: constant_identifier_names, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_final_fields
-// ignore_for_file: unnecessary_import, unnecessary_this, unused_import
+// ignore_for_file: constant_identifier_names
+// ignore_for_file: curly_braces_in_flow_control_structures
+// ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: unused_import
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
@@ -19,15 +21,64 @@ const Message$json = {
   '2': [
     {'1': 'id', '3': 1, '4': 1, '5': 3, '10': 'id'},
     {'1': 'date', '3': 2, '4': 1, '5': 3, '10': 'date'},
-    {'1': 'from', '3': 3, '4': 1, '5': 11, '6': '.webitel.chat.Peer', '10': 'from'},
-    {'1': 'chat', '3': 4, '4': 1, '5': 11, '6': '.webitel.chat.Chat', '10': 'chat'},
-    {'1': 'sender', '3': 5, '4': 1, '5': 11, '6': '.webitel.chat.Chat', '10': 'sender'},
+    {
+      '1': 'from',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.chat.Peer',
+      '10': 'from'
+    },
+    {
+      '1': 'chat',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.chat.Chat',
+      '10': 'chat'
+    },
+    {
+      '1': 'sender',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.chat.Chat',
+      '10': 'sender'
+    },
     {'1': 'edit', '3': 6, '4': 1, '5': 3, '10': 'edit'},
     {'1': 'text', '3': 7, '4': 1, '5': 9, '10': 'text'},
-    {'1': 'file', '3': 8, '4': 1, '5': 11, '6': '.webitel.chat.File', '10': 'file'},
-    {'1': 'context', '3': 9, '4': 3, '5': 11, '6': '.webitel.chat.Message.ContextEntry', '10': 'context'},
-    {'1': 'keyboard', '3': 10, '4': 1, '5': 11, '6': '.webitel.chat.ReplyMarkup', '10': 'keyboard'},
-    {'1': 'postback', '3': 11, '4': 1, '5': 11, '6': '.webitel.chat.Postback', '10': 'postback'},
+    {
+      '1': 'file',
+      '3': 8,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.chat.File',
+      '10': 'file'
+    },
+    {
+      '1': 'context',
+      '3': 9,
+      '4': 3,
+      '5': 11,
+      '6': '.webitel.chat.Message.ContextEntry',
+      '10': 'context'
+    },
+    {
+      '1': 'keyboard',
+      '3': 10,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.chat.ReplyMarkup',
+      '10': 'keyboard'
+    },
+    {
+      '1': 'postback',
+      '3': 11,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.chat.Postback',
+      '10': 'postback'
+    },
   ],
   '3': [Message_ContextEntry$json],
 };
@@ -75,7 +126,14 @@ const ReplyMarkup$json = {
   '1': 'ReplyMarkup',
   '2': [
     {'1': 'no_input', '3': 2, '4': 1, '5': 8, '10': 'noInput'},
-    {'1': 'buttons', '3': 1, '4': 3, '5': 11, '6': '.webitel.chat.ButtonRow', '10': 'buttons'},
+    {
+      '1': 'buttons',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.webitel.chat.ButtonRow',
+      '10': 'buttons'
+    },
   ],
 };
 
@@ -88,7 +146,14 @@ final $typed_data.Uint8List replyMarkupDescriptor = $convert.base64Decode(
 const ButtonRow$json = {
   '1': 'ButtonRow',
   '2': [
-    {'1': 'row', '3': 1, '4': 3, '5': 11, '6': '.webitel.chat.Button', '10': 'row'},
+    {
+      '1': 'row',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.webitel.chat.Button',
+      '10': 'row'
+    },
   ],
 };
 
@@ -103,7 +168,15 @@ const Button$json = {
     {'1': 'text', '3': 1, '4': 1, '5': 9, '10': 'text'},
     {'1': 'url', '3': 2, '4': 1, '5': 9, '9': 0, '10': 'url'},
     {'1': 'code', '3': 3, '4': 1, '5': 9, '9': 0, '10': 'code'},
-    {'1': 'share', '3': 4, '4': 1, '5': 14, '6': '.webitel.chat.Button.Request', '9': 0, '10': 'share'},
+    {
+      '1': 'share',
+      '3': 4,
+      '4': 1,
+      '5': 14,
+      '6': '.webitel.chat.Button.Request',
+      '9': 0,
+      '10': 'share'
+    },
   ],
   '4': [Button_Request$json],
   '8': [
@@ -143,4 +216,3 @@ const Postback$json = {
 final $typed_data.Uint8List postbackDescriptor = $convert.base64Decode(
     'CghQb3N0YmFjaxIQCgNtaWQYASABKANSA21pZBISCgRjb2RlGAIgASgJUgRjb2RlEhIKBHRleH'
     'QYAyABKAlSBHRleHQ=');
-

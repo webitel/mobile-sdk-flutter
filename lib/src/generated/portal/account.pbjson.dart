@@ -1,13 +1,15 @@
+// This is a generated file - do not edit.
 //
-//  Generated code. Do not modify.
-//  source: portal/account.proto
-//
-// @dart = 2.12
+// Generated from portal/account.proto.
+
+// @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
-// ignore_for_file: constant_identifier_names, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_final_fields
-// ignore_for_file: unnecessary_import, unnecessary_this, unused_import
+// ignore_for_file: constant_identifier_names
+// ignore_for_file: curly_braces_in_flow_control_structures
+// ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: unused_import
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
@@ -45,9 +47,29 @@ const Identity$json = {
     {'1': 'email', '3': 13, '4': 1, '5': 9, '10': 'email'},
     {'1': 'email_verified', '3': 14, '4': 1, '5': 8, '10': 'emailVerified'},
     {'1': 'phone_number', '3': 15, '4': 1, '5': 9, '10': 'phoneNumber'},
-    {'1': 'phone_number_verified', '3': 16, '4': 1, '5': 8, '10': 'phoneNumberVerified'},
-    {'1': 'metadata', '3': 21, '4': 1, '5': 11, '6': '.google.protobuf.Struct', '10': 'metadata'},
-    {'1': 'sources', '3': 25, '4': 3, '5': 11, '6': '.webitel.portal.SourceId', '10': 'sources'},
+    {
+      '1': 'phone_number_verified',
+      '3': 16,
+      '4': 1,
+      '5': 8,
+      '10': 'phoneNumberVerified'
+    },
+    {
+      '1': 'metadata',
+      '3': 21,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Struct',
+      '10': 'metadata'
+    },
+    {
+      '1': 'sources',
+      '3': 25,
+      '4': 3,
+      '5': 11,
+      '6': '.webitel.portal.SourceId',
+      '10': 'sources'
+    },
     {'1': 'updated_at', '3': 22, '4': 1, '5': 3, '10': 'updatedAt'},
     {'1': 'created_at', '3': 23, '4': 1, '5': 3, '10': 'createdAt'},
     {'1': 'deleted_at', '3': 24, '4': 1, '5': 3, '10': 'deletedAt'},
@@ -76,7 +98,14 @@ const UserProfile$json = {
   '2': [
     {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
     {'1': 'username', '3': 2, '4': 1, '5': 9, '10': 'username'},
-    {'1': 'identity', '3': 3, '4': 1, '5': 11, '6': '.webitel.portal.Identity', '10': 'identity'},
+    {
+      '1': 'identity',
+      '3': 3,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.Identity',
+      '10': 'identity'
+    },
   ],
   '9': [
     {'1': 4, '2': 5},
@@ -107,4 +136,3 @@ final $typed_data.Uint8List callAccountDescriptor = $convert.base64Decode(
     'CgtDYWxsQWNjb3VudBIUCgVwcm94eRgBIAEoCVIFcHJveHkSFAoFcmVhbG0YAiABKAlSBXJlYW'
     'xtEhcKB3VzZXJfaWQYAyABKAlSBnVzZXJJZBIXCgdhdXRoX2lkGAQgASgJUgZhdXRoSWQSFgoG'
     'c2VjcmV0GAUgASgJUgZzZWNyZXQSFAoFdmlkZW8YBiABKAhSBXZpZGVv');
-

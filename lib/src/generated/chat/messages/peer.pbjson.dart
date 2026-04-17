@@ -1,13 +1,15 @@
+// This is a generated file - do not edit.
 //
-//  Generated code. Do not modify.
-//  source: chat/messages/peer.proto
-//
-// @dart = 2.12
+// Generated from chat/messages/peer.proto.
+
+// @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
-// ignore_for_file: constant_identifier_names, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_final_fields
-// ignore_for_file: unnecessary_import, unnecessary_this, unused_import
+// ignore_for_file: constant_identifier_names
+// ignore_for_file: curly_braces_in_flow_control_structures
+// ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: unused_import
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
@@ -33,7 +35,15 @@ const InputPeer$json = {
   '1': 'InputPeer',
   '2': [
     {'1': 'chat_id', '3': 1, '4': 1, '5': 9, '9': 0, '10': 'chatId'},
-    {'1': 'peer', '3': 2, '4': 1, '5': 11, '6': '.webitel.chat.Peer', '9': 0, '10': 'peer'},
+    {
+      '1': 'peer',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.chat.Peer',
+      '9': 0,
+      '10': 'peer'
+    },
   ],
   '8': [
     {'1': 'input'},
@@ -44,4 +54,3 @@ const InputPeer$json = {
 final $typed_data.Uint8List inputPeerDescriptor = $convert.base64Decode(
     'CglJbnB1dFBlZXISGQoHY2hhdF9pZBgBIAEoCUgAUgZjaGF0SWQSKAoEcGVlchgCIAEoCzISLn'
     'dlYml0ZWwuY2hhdC5QZWVySABSBHBlZXJCBwoFaW5wdXQ=');
-

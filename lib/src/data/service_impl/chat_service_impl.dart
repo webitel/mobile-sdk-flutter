@@ -6,6 +6,7 @@ import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:grpc/grpc.dart';
 import 'package:grpc/grpc_or_grpcweb.dart';
 import 'package:injectable/injectable.dart';
+import 'package:protobuf/well_known_types/google/protobuf/any.pb.dart';
 import 'package:retry/retry.dart';
 import 'package:uuid/uuid.dart';
 import 'package:webitel_portal_sdk/src/data/builder/error_dialog_message.dart';
@@ -37,7 +38,6 @@ import 'package:webitel_portal_sdk/src/generated/chat/messages/dialog.pb.dart'
 import 'package:webitel_portal_sdk/src/generated/chat/messages/history.pb.dart';
 import 'package:webitel_portal_sdk/src/generated/chat/messages/message.pb.dart'
     as file;
-import 'package:webitel_portal_sdk/src/generated/google/protobuf/any.pb.dart';
 import 'package:webitel_portal_sdk/src/generated/portal/connect.pb.dart'
     as portal;
 import 'package:webitel_portal_sdk/src/generated/portal/media.pb.dart';

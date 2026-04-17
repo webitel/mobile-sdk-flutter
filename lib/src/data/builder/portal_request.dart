@@ -1,4 +1,4 @@
-import 'package:webitel_portal_sdk/src/generated/google/protobuf/any.pb.dart';
+import 'package:protobuf/well_known_types/google/protobuf/any.pb.dart';
 import 'package:webitel_portal_sdk/src/generated/portal/connect.pb.dart'
     as portal;
 
@@ -23,10 +23,9 @@ final class PortalRequestBuilder {
   }
 
   portal.Request build() {
-    return portal.Request(
-      path: path,
-      data: data,
-      id: id,
-    );
+    return portal.Request()
+      ..path = path
+      ..data = data
+      ..id = id;
   }
 }

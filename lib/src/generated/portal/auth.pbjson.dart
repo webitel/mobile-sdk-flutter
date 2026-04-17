@@ -1,13 +1,15 @@
+// This is a generated file - do not edit.
 //
-//  Generated code. Do not modify.
-//  source: portal/auth.proto
-//
-// @dart = 2.12
+// Generated from portal/auth.proto.
+
+// @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
-// ignore_for_file: constant_identifier_names, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_final_fields
-// ignore_for_file: unnecessary_import, unnecessary_this, unused_import
+// ignore_for_file: constant_identifier_names
+// ignore_for_file: curly_braces_in_flow_control_structures
+// ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: unused_import
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
@@ -23,9 +25,23 @@ const TokenRequest$json = {
     {'1': 'grant_type', '3': 4, '4': 1, '5': 9, '10': 'grantType'},
     {'1': 'response_type', '3': 5, '4': 3, '5': 9, '10': 'responseType'},
     {'1': 'refresh_token', '3': 11, '4': 1, '5': 9, '10': 'refreshToken'},
-    {'1': 'identity', '3': 12, '4': 1, '5': 11, '6': '.webitel.portal.Identity', '10': 'identity'},
+    {
+      '1': 'identity',
+      '3': 12,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.Identity',
+      '10': 'identity'
+    },
     {'1': 'code', '3': 13, '4': 1, '5': 9, '10': 'code'},
-    {'1': 'push', '3': 21, '4': 1, '5': 11, '6': '.webitel.portal.DevicePush', '10': 'push'},
+    {
+      '1': 'push',
+      '3': 21,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.DevicePush',
+      '10': 'push'
+    },
   ],
 };
 
@@ -48,9 +64,30 @@ const AccessToken$json = {
     {'1': 'refresh_token', '3': 4, '4': 1, '5': 9, '10': 'refreshToken'},
     {'1': 'scope', '3': 5, '4': 3, '5': 9, '10': 'scope'},
     {'1': 'state', '3': 6, '4': 1, '5': 9, '10': 'state'},
-    {'1': 'user', '3': 21, '4': 1, '5': 11, '6': '.webitel.portal.UserProfile', '10': 'user'},
-    {'1': 'call', '3': 22, '4': 1, '5': 11, '6': '.webitel.portal.CallAccount', '10': 'call'},
-    {'1': 'chat', '3': 23, '4': 1, '5': 11, '6': '.webitel.portal.ChatAccount', '10': 'chat'},
+    {
+      '1': 'user',
+      '3': 21,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.UserProfile',
+      '10': 'user'
+    },
+    {
+      '1': 'call',
+      '3': 22,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.CallAccount',
+      '10': 'call'
+    },
+    {
+      '1': 'chat',
+      '3': 23,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.ChatAccount',
+      '10': 'chat'
+    },
   ],
 };
 
@@ -63,4 +100,3 @@ final $typed_data.Uint8List accessTokenDescriptor = $convert.base64Decode(
     'LlVzZXJQcm9maWxlUgR1c2VyEi8KBGNhbGwYFiABKAsyGy53ZWJpdGVsLnBvcnRhbC5DYWxsQW'
     'Njb3VudFIEY2FsbBIvCgRjaGF0GBcgASgLMhsud2ViaXRlbC5wb3J0YWwuQ2hhdEFjY291bnRS'
     'BGNoYXQ=');
-

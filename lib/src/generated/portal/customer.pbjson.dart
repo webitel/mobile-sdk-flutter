@@ -1,13 +1,15 @@
+// This is a generated file - do not edit.
 //
-//  Generated code. Do not modify.
-//  source: portal/customer.proto
-//
-// @dart = 2.12
+// Generated from portal/customer.proto.
+
+// @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
-// ignore_for_file: constant_identifier_names, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_final_fields
-// ignore_for_file: unnecessary_import, unnecessary_this, unused_import
+// ignore_for_file: constant_identifier_names
+// ignore_for_file: curly_braces_in_flow_control_structures
+// ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: unused_import
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
@@ -19,8 +21,8 @@ const InspectRequest$json = {
 };
 
 /// Descriptor for `InspectRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List inspectRequestDescriptor = $convert.base64Decode(
-    'Cg5JbnNwZWN0UmVxdWVzdA==');
+final $typed_data.Uint8List inspectRequestDescriptor =
+    $convert.base64Decode('Cg5JbnNwZWN0UmVxdWVzdA==');
 
 @$core.Deprecated('Use logoutRequestDescriptor instead')
 const LogoutRequest$json = {
@@ -28,14 +30,21 @@ const LogoutRequest$json = {
 };
 
 /// Descriptor for `LogoutRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List logoutRequestDescriptor = $convert.base64Decode(
-    'Cg1Mb2dvdXRSZXF1ZXN0');
+final $typed_data.Uint8List logoutRequestDescriptor =
+    $convert.base64Decode('Cg1Mb2dvdXRSZXF1ZXN0');
 
 @$core.Deprecated('Use registerDeviceRequestDescriptor instead')
 const RegisterDeviceRequest$json = {
   '1': 'RegisterDeviceRequest',
   '2': [
-    {'1': 'push', '3': 1, '4': 1, '5': 11, '6': '.webitel.portal.DevicePush', '10': 'push'},
+    {
+      '1': 'push',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.webitel.portal.DevicePush',
+      '10': 'push'
+    },
   ],
 };
 
@@ -50,6 +59,5 @@ const RegisterDeviceResponse$json = {
 };
 
 /// Descriptor for `RegisterDeviceResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List registerDeviceResponseDescriptor = $convert.base64Decode(
-    'ChZSZWdpc3RlckRldmljZVJlc3BvbnNl');
-
+final $typed_data.Uint8List registerDeviceResponseDescriptor =
+    $convert.base64Decode('ChZSZWdpc3RlckRldmljZVJlc3BvbnNl');

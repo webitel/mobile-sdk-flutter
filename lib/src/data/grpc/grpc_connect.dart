@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:grpc/grpc.dart';
 import 'package:injectable/injectable.dart';
+import 'package:protobuf/well_known_types/google/protobuf/any.pb.dart';
 import 'package:synchronized/synchronized.dart';
 import 'package:webitel_portal_sdk/src/data/grpc/grpc_channel.dart';
 import 'package:webitel_portal_sdk/src/data/helper/channel_status.dart';
@@ -14,7 +15,6 @@ import 'package:webitel_portal_sdk/src/domain/entities/channel_status.dart';
 import 'package:webitel_portal_sdk/src/domain/entities/connect.dart';
 import 'package:webitel_portal_sdk/src/domain/entities/connect_status.dart';
 import 'package:webitel_portal_sdk/src/domain/entities/response_type.dart';
-import 'package:webitel_portal_sdk/src/generated/google/protobuf/any.pb.dart';
 import 'package:webitel_portal_sdk/src/generated/portal/connect.pb.dart'
     as portal;
 import 'package:webitel_portal_sdk/src/generated/portal/messages.pb.dart';
