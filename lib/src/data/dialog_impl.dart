@@ -77,7 +77,7 @@ final class DialogImpl implements Dialog {
     UploadFile? uploadFile,
     required String content,
     required String requestId,
-    int? timeout = 0,
+    int? timeout,
   }) async {
     return await _chatService.sendMessage(
       chatId: id,
@@ -128,7 +128,7 @@ final class DialogImpl implements Dialog {
     int? limit,
     int? offset,
   }) async {
-    return await _chatService.fetchMessages(
+    return await _chatService.fetchUpdates(
       chatId: id,
       limit: limit,
       offset: offset,

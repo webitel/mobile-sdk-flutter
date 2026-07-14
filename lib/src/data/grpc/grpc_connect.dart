@@ -22,6 +22,10 @@ import 'package:webitel_portal_sdk/src/generated/portal/messages.pbgrpc.dart';
 
 /// A singleton class to manage gRPC bi-directional Connect stream and handle
 /// communication with the server.
+///
+/// At most ONE Connect call is alive at any moment: requests are written to a
+/// single-subscription sink owned by that call, so a request can never be
+/// delivered to the server more than once.
 @LazySingleton()
 final class GrpcConnect {
   // The gRPC channel used to communicate with the server.
@@ -50,10 +54,6 @@ final class GrpcConnect {
   final StreamController<UpdateLeftMember> _memberLeftStreamController =
       StreamController<UpdateLeftMember>.broadcast();
 
-  // Stream controller for requests to the server.
-  final StreamController<portal.Request> _requestStreamController =
-      StreamController<portal.Request>.broadcast();
-
   // Stream controller for errors encountered during communication.
   final StreamController<CallError> _errorStreamController =
       StreamController<CallError>.broadcast();
@@ -62,8 +62,22 @@ final class GrpcConnect {
   final StreamController<ChannelStatus> _channelStatus =
       StreamController<ChannelStatus>.broadcast();
 
-  // Stream for receiving responses from the server.
-  Stream<portal.Update>? _responseStream;
+  // Request sink of the active Connect call. Single-subscription: exactly one
+  // live gRPC call consumes it. Null while no call is active.
+  StreamController<portal.Request>? _requestSink;
+
+  // Subscription to the active call's updates; kept so the previous call can
+  // be cancelled before a new one is opened.
+  StreamSubscription<portal.Update>? _updateSubscription;
+
+  // Completes when the active call receives its first update (proof that the
+  // stream is live), or with an error if the call fails to establish.
+  Completer<void>? _connectionReady;
+
+  // Incremented on every (re)connect. Callbacks of a previous call compare
+  // their captured epoch against it, so a stale onError/onDone can never tear
+  // down the current call.
+  int _connectEpoch = 0;
 
   // Flag indicating if the connection is closed.
   bool connectClosed = true;
@@ -77,9 +91,6 @@ final class GrpcConnect {
   // Current connection state of the gRPC channel.
   ConnectionState? _connectionState;
 
-  // Timer for periodic tasks, such as sending ping messages.
-  Timer? _timer;
-
   /// Constructs a [GrpcConnect] instance with the specified dependencies.
   ///
   /// [sharedPreferencesGateway] The gateway to access shared preferences.
@@ -88,146 +99,294 @@ final class GrpcConnect {
     listenToChannelStatus();
   }
 
-  /// Listens to responses from the gRPC server and processes them accordingly.
-  Future<void> listenToResponses() async {
-    try {
-      if (_responseStream != null) {
-        await for (portal.Update update in _responseStream!) {
-          connectClosed = false;
-          _connectController.add(Connect(status: ConnectStatus.opened));
-          final responseType = ResponseTypeHelper.determineResponseType(update);
+  // Whether there is an active Connect call able to accept requests.
+  bool get _isActive => _requestSink != null && !_requestSink!.isClosed;
 
-          log.info(
-              'Received a new response from the server with response type: $responseType');
+  /// Sends a request to the server over the Connect stream, (re)establishing
+  /// the stream first if needed.
+  ///
+  /// Throws a [GrpcError] if the stream cannot be established, so the caller
+  /// can report the failure immediately instead of waiting for a timeout.
+  ///
+  /// [request] The request to be sent.
+  Future<void> sendRequest(portal.Request request) async {
+    if (!_isActive) {
+      log.info('No active Connect stream. Establishing connection...');
+      await _ensureConnected();
+    }
 
-          switch (responseType) {
-            case ResponseType.response:
-              // [Processing a standard response]
-              log.info('Processing response type: ${ResponseType.response}');
+    final sink = _requestSink;
+    if (sink == null || sink.isClosed) {
+      throw GrpcError.unavailable('Connect stream is not available');
+    }
 
-              _responseStreamController.add(
-                update.data.unpackInto(
-                  portal.Response(),
-                ),
-              );
+    sink.add(request);
+    log.info('Request added to the stream. Request path: ${request.path}');
+  }
 
-            case ResponseType.updateNewMessage:
-              // [Processing a new message update]
-              log.info(
-                  'Processing response type: ${ResponseType.updateNewMessage}');
-              final decodedUpdate = update.data.unpackInto(
-                UpdateNewMessage(),
-              );
+  /// Establishes the Connect stream if it is not already active.
+  Future<void> _ensureConnected() async {
+    await _lock.synchronized(() async {
+      if (_isActive) return;
+      await _connect();
+    });
+  }
 
-              _updateStreamController.add(decodedUpdate);
-              log.info('New message received: ${decodedUpdate.message.text}');
+  /// Forcefully re-establishes the Connect stream.
+  Future<void> reconnect() async {
+    await _lock.synchronized(() async {
+      if (_connectionState == ConnectionState.shutdown) {
+        log.info(
+            'Current connection state is shutdown. Refreshing access token...');
 
-            case ResponseType.memberAdded:
-              // [Processing a new member added update]
-              log.info('Processing response type: ${ResponseType.memberAdded}');
-              final decodedUpdate = update.data.unpackInto(
-                UpdateChatMember(),
-              );
-
-              _memberAddedStreamController.add(decodedUpdate);
-              log.info(
-                  'New chat member added: ${decodedUpdate.join.first.name}');
-
-            case ResponseType.memberLeft:
-              // [Processing member left chat]
-              log.info('Processing response type: ${ResponseType.memberLeft}');
-              final decodedUpdate = update.data.unpackInto(
-                UpdateLeftMember(),
-              );
-
-              _memberLeftStreamController.add(decodedUpdate);
-              log.info('Member left chat: ${decodedUpdate.left.name}');
-
-            case ResponseType.error:
-              // [Processing an error response]
-              log.info('Processing response type: ${ResponseType.error}');
-              final decodedResponse = update.data.unpackInto(
-                portal.Response(),
-              );
-
-              _responseStreamController.add(decodedResponse);
-              final code =
-                  ErrorHelper.getCodeFromMessage(decodedResponse.err.message);
-
-              _errorStreamController.add(
-                CallError(
-                  statusCode: code,
-                  errorMessage: decodedResponse.err.message,
-                ),
-              );
-              log.warning(
-                  'Error response received: ${decodedResponse.err.message}');
-            case ResponseType.disconnect:
-              handleConnectionClosure(err: 'gRPC stream was terminated');
-            case ResponseType.chatComplete:
-              log.info(
-                  'Processing response type: ${ResponseType.chatComplete}');
-              throw UnimplementedError();
-          }
-        }
-      } else {
-        log.warning('Response stream is null, unable to listen to responses.');
+        final accessToken = await _sharedPreferencesGateway.readAccessToken();
+        await _grpcChannel.setAccessToken(accessToken ?? '');
       }
-    } on GrpcError catch (err) {
-      log.warning('GRPC Error encountered: ${err.message}');
 
-      _errorStreamController.add(
-        CallError(
-          statusCode: err.code.toString(),
-          errorMessage: err.message ?? '',
+      await _teardownCall();
+      await _connect();
+
+      log.info('Reconnected to the gRPC Stream successfully.');
+    });
+  }
+
+  /// Opens a new Connect call and waits until it is confirmed live.
+  ///
+  /// Must only be called while holding [_lock].
+  Future<void> _connect() async {
+    await _teardownCall();
+
+    final epoch = ++_connectEpoch;
+    final sink = StreamController<portal.Request>();
+    final ready = Completer<void>();
+
+    _requestSink = sink;
+    _connectionReady = ready;
+
+    log.info('Attempting to establish a connection to the gRPC server...');
+
+    try {
+      final call = _grpcChannel.customerStub.connect(sink.stream);
+
+      // The server's initial HTTP/2 metadata is the earliest reliable signal
+      // that the stream was actually accepted — grpc-dart opens calls lazily,
+      // so the call object alone proves nothing. The Ping round-trip below is
+      // a stronger end-to-end proof; whichever arrives first marks the stream
+      // live. Establishment failures surface via the update subscription's
+      // onError, so a headers error can be ignored here.
+      unawaited(call.headers
+          .then((_) => _markConnected(epoch))
+          .catchError((Object _) {}));
+
+      _updateSubscription = call.listen(
+        (update) => _handleUpdate(update, epoch),
+        onError: (Object err) => _handleCallClosure(
+          epoch,
+          err is GrpcError ? (err.message ?? err.toString()) : err.toString(),
+          error: err,
         ),
+        onDone: () =>
+            _handleCallClosure(epoch, 'gRPC stream was closed by the server'),
+        cancelOnError: true,
       );
-      handleConnectionClosure(err: err.message ?? '');
-    } catch (err) {
-      log.warning('Unexpected error occurred: $err');
-      handleConnectionClosure(err: err.toString());
+
+      // The call is established lazily by grpc-dart; a Ping forces a full
+      // round-trip so [ready] only completes once the stream is proven live.
+      await sendPingMessage();
+      await ready.future.timeout(const Duration(seconds: 10));
+
+      log.info(
+          'Connection established successfully. Listening to responses...');
+    } on Object catch (err) {
+      log.warning('Error occurred while establishing the connection: $err');
+      await _teardownCall();
+
+      throw err is GrpcError
+          ? err
+          : GrpcError.unavailable('Failed to establish Connect stream: $err');
     }
   }
 
-  /// Handles the closure of the connection, setting the appropriate flags and state.
-  ///
-  /// [errorMessage] The error message to be logged and included in the connection status.
-  void handleConnectionClosure({required String err}) {
+  /// Marks the active call as live: completes the pending connection
+  /// verification and notifies listeners exactly once per connection.
+  void _markConnected(int epoch) {
+    if (epoch != _connectEpoch) return;
+
+    connectClosed = false;
+
+    final ready = _connectionReady;
+    if (ready != null && !ready.isCompleted) {
+      ready.complete();
+      _connectController.add(Connect(status: ConnectStatus.opened));
+    }
+  }
+
+  /// Processes a single update received from the server.
+  void _handleUpdate(portal.Update update, int epoch) {
+    if (epoch != _connectEpoch) return;
+
+    _markConnected(epoch);
+
+    try {
+      final responseType = ResponseTypeHelper.determineResponseType(update);
+
+      log.info(
+          'Received a new response from the server with response type: $responseType');
+
+      switch (responseType) {
+        case ResponseType.response:
+          // [Processing a standard response]
+          log.info('Processing response type: ${ResponseType.response}');
+
+          _responseStreamController.add(
+            update.data.unpackInto(
+              portal.Response(),
+            ),
+          );
+
+        case ResponseType.updateNewMessage:
+          // [Processing a new message update]
+          log.info(
+              'Processing response type: ${ResponseType.updateNewMessage}');
+          final decodedUpdate = update.data.unpackInto(
+            UpdateNewMessage(),
+          );
+
+          _updateStreamController.add(decodedUpdate);
+          log.info('New message received: ${decodedUpdate.message.text}');
+
+        case ResponseType.memberAdded:
+          // [Processing a new member added update]
+          log.info('Processing response type: ${ResponseType.memberAdded}');
+          final decodedUpdate = update.data.unpackInto(
+            UpdateChatMember(),
+          );
+
+          _memberAddedStreamController.add(decodedUpdate);
+          log.info('New chat member added: ${decodedUpdate.join.first.name}');
+
+        case ResponseType.memberLeft:
+          // [Processing member left chat]
+          log.info('Processing response type: ${ResponseType.memberLeft}');
+          final decodedUpdate = update.data.unpackInto(
+            UpdateLeftMember(),
+          );
+
+          _memberLeftStreamController.add(decodedUpdate);
+          log.info('Member left chat: ${decodedUpdate.left.name}');
+
+        case ResponseType.error:
+          // [Processing an error response]
+          log.info('Processing response type: ${ResponseType.error}');
+          final decodedResponse = update.data.unpackInto(
+            portal.Response(),
+          );
+
+          _responseStreamController.add(decodedResponse);
+          final code =
+              ErrorHelper.getCodeFromMessage(decodedResponse.err.message);
+
+          _errorStreamController.add(
+            CallError(
+              statusCode: code,
+              errorMessage: decodedResponse.err.message,
+            ),
+          );
+          log.warning(
+              'Error response received: ${decodedResponse.err.message}');
+
+        case ResponseType.disconnect:
+          _handleCallClosure(epoch, 'gRPC stream was terminated');
+
+        case ResponseType.chatComplete:
+          // A completed chat is a normal domain event: it must not tear down
+          // the transport or crash the update listener.
+          log.info('Processing response type: ${ResponseType.chatComplete}');
+      }
+    } catch (err) {
+      log.warning('Unexpected error while processing an update: $err');
+    }
+  }
+
+  /// Handles the closure of the active call: releases its resources and
+  /// notifies listeners. Safe to call multiple times; stale epochs are
+  /// ignored.
+  void _handleCallClosure(int epoch, String message, {Object? error}) {
+    if (epoch != _connectEpoch) return;
+    // Invalidate any remaining callbacks of this call (e.g. onDone following
+    // an in-band disconnect update), so closure runs exactly once.
+    _connectEpoch++;
+
+    if (error is GrpcError) {
+      log.warning('GRPC Error encountered: ${error.message}');
+
+      _errorStreamController.add(
+        CallError(
+          statusCode: error.code.toString(),
+          errorMessage: error.message ?? '',
+        ),
+      );
+    }
+
+    final ready = _connectionReady;
+    _connectionReady = null;
+    if (ready != null && !ready.isCompleted) {
+      ready.completeError(
+        error is GrpcError ? error : GrpcError.unavailable(message),
+      );
+    }
+
+    final sink = _requestSink;
+    _requestSink = null;
+    if (sink != null && !sink.isClosed) {
+      unawaited(sink.close());
+    }
+
+    unawaited(_updateSubscription?.cancel());
+    _updateSubscription = null;
     connectClosed = true;
-    _responseStream = null;
 
     _connectController.add(
       Connect(
         status: ConnectStatus.closed,
-        errorMessage: err,
+        errorMessage: message,
       ),
     );
-    log.info('Connection closed with error message: $err');
+    log.info('Connection closed with error message: $message');
   }
 
-  /// Establishes a connection to the gRPC server and listens for responses.
-  Future<void> _connect() async {
-    try {
-      log.info('Attempting to establish a connection to the gRPC server...');
+  /// Cancels the active call, if any, and releases its resources.
+  Future<void> _teardownCall() async {
+    _connectEpoch++;
 
-      _responseStream = _grpcChannel.customerStub
-          .connect(_requestStreamController.stream)
-          .asBroadcastStream();
+    final subscription = _updateSubscription;
+    _updateSubscription = null;
+    // Cancelling the update subscription cancels the underlying gRPC call.
+    await subscription?.cancel();
 
-      await _responseStream?.isEmpty;
-
-      log.info(
-          'Connection established successfully. Listening to responses...');
-      listenToResponses();
-    } catch (err) {
-      connectClosed = true;
-      _responseStream = null;
-      log.warning('Error occurred while establishing the connection: $err');
+    final sink = _requestSink;
+    _requestSink = null;
+    if (sink != null && !sink.isClosed) {
+      unawaited(sink.close());
     }
+
+    final ready = _connectionReady;
+    _connectionReady = null;
+    if (ready != null && !ready.isCompleted) {
+      ready.completeError(GrpcError.cancelled('Connect stream was torn down'));
+    }
+
+    connectClosed = true;
   }
 
-  /// Sends a ping message to the server
+  /// Sends a ping message to the server over the active Connect stream.
   Future<void> sendPingMessage() async {
+    final sink = _requestSink;
+    if (sink == null || sink.isClosed) {
+      log.warning('Cannot send ping: Connect stream is not active.');
+      return;
+    }
+
     final String echoDataString = 'Bind';
     final List<int> echoDataBytes = echoDataString.codeUnits;
     final echo = portal.Echo(data: echoDataBytes);
@@ -237,55 +396,8 @@ final class GrpcConnect {
       data: Any.pack(echo),
     );
 
-    _requestStreamController.add(request);
+    sink.add(request);
     log.info('Ping message sent to server. Request path: ${request.path}');
-  }
-
-  /// Sends a request to the server.
-  ///
-  /// [request] The request to be sent.
-  Future<void> sendRequest(portal.Request request) async {
-    log.info('Starting to send request to server...');
-
-    if (connectClosed == true && _responseStream == null) {
-      log.warning(
-          'Connection is closed or not ready. Attempting to reconnect...');
-      await reconnect();
-    }
-
-    _requestStreamController.add(request);
-    log.info('Request added to the stream. Request path: ${request.path}');
-  }
-
-  /// Attempts to reconnect to the gRPC server with synchronized backoff strategy.
-  Future<void> reconnect() async {
-    if (_connectionState == ConnectionState.shutdown) {
-      log.info(
-          'Current connection state is shutdown. Reinitializing gRPC channel...');
-
-      final accessToken = await _sharedPreferencesGateway.readAccessToken();
-      await _grpcChannel.setAccessToken(accessToken ?? '');
-
-      log.info('gRPC Channel reinitialized successfully.');
-    }
-
-    await _lock.synchronized(() async {
-      int pingCount = 0;
-      _timer = Timer.periodic(Duration(seconds: 1), (timer) async {
-        if (pingCount < 5) {
-          log.info('Sending periodic ping message to maintain connection...');
-
-          await sendPingMessage();
-          pingCount++;
-        } else {
-          _timer?.cancel();
-        }
-      });
-      await _connect();
-      _timer?.cancel();
-
-      log.info('Reconnected to the gRPC Stream successfully.');
-    });
   }
 
   /// Listens to the channel status and handles state changes.
@@ -301,54 +413,22 @@ final class GrpcConnect {
         ),
       );
 
-      if (state == ConnectionState.shutdown) {
-        handleStreamCleanup();
+      // Only a lost transport invalidates the active call. `idle` is the
+      // normal state of a channel without in-flight calls and must not be
+      // treated as a failure.
+      if (state == ConnectionState.shutdown ||
+          state == ConnectionState.transientFailure) {
+        if (_updateSubscription != null || _isActive) {
+          _handleCallClosure(
+            _connectEpoch,
+            'Connection was closed due to the channel state change: $state',
+          );
 
-        _connectController.add(
-          Connect(
-            errorMessage:
-                'Connection was closed due to the channel state change: $state',
-            status: ConnectStatus.closed,
-          ),
-        );
-
-        log.warning('Response stream canceled due to state: $state');
-      } else if (state == ConnectionState.transientFailure) {
-        handleStreamCleanup();
-
-        _connectController.add(
-          Connect(
-            errorMessage:
-                'Connection was closed due to the channel state change: $state',
-            status: ConnectStatus.closed,
-          ),
-        );
-
-        log.warning('Response stream canceled due to state: $state');
-      } else if (state == ConnectionState.idle) {
-        handleStreamCleanup();
-
-        _connectController.add(
-          Connect(
-            errorMessage:
-                'Connection was closed due to the channel state change: $state',
-            status: ConnectStatus.closed,
-          ),
-        );
-
-        log.warning('Response stream canceled due to state: $state');
+          log.warning('Active call released due to state: $state');
+        }
       }
       _connectionState = state;
     });
-  }
-
-  /// Handles the cleanup of the response stream and connection state.
-  void handleStreamCleanup() {
-    _responseStream = null;
-    connectClosed = true;
-
-    log.info(
-        'Stream cleanup completed. Response stream set to null and connection marked as closed.');
   }
 
   /// Gets the response stream controller's stream.
@@ -377,10 +457,13 @@ final class GrpcConnect {
 
   /// Disposes the stream controllers.
   void dispose() {
-    _requestStreamController.close();
+    unawaited(_teardownCall());
     _responseStreamController.close();
     _connectController.close();
     _updateStreamController.close();
+    _memberAddedStreamController.close();
+    _memberLeftStreamController.close();
+    _errorStreamController.close();
     _channelStatus.close();
 
     log.info('Disposed all stream controllers and cleaned up resources.');

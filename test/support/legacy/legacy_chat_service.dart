@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:fixnum/fixnum.dart' as fixnum;
 import 'package:grpc/grpc.dart';
 import 'package:grpc/grpc_or_grpcweb.dart';
-import 'package:injectable/injectable.dart';
 import 'package:protobuf/well_known_types/google/protobuf/any.pb.dart';
 import 'package:retry/retry.dart';
 import 'package:uuid/uuid.dart';
@@ -18,7 +17,7 @@ import 'package:webitel_portal_sdk/src/data/constants/error_codes.dart';
 import 'package:webitel_portal_sdk/src/data/dialog_impl.dart';
 import 'package:webitel_portal_sdk/src/data/download_impl.dart';
 import 'package:webitel_portal_sdk/src/data/grpc/grpc_channel.dart';
-import 'package:webitel_portal_sdk/src/data/grpc/grpc_connect.dart';
+import 'legacy_grpc_connect.dart';
 import 'package:webitel_portal_sdk/src/data/helper/error.dart';
 import 'package:webitel_portal_sdk/src/data/helper/message.dart';
 import 'package:webitel_portal_sdk/src/data/logger/logger.dart';
@@ -80,11 +79,10 @@ typedef SendMessageErrorHandler = void Function(
 );
 
 /// Implementation of [ChatService] for handling chat operations.
-@LazySingleton(as: ChatService)
-final class ChatServiceImpl implements ChatService {
+final class LegacyChatServiceImpl implements ChatService {
   // Dependencies required for the chat service.
   final GrpcChannel _grpcChannel;
-  final GrpcConnect _grpcConnect;
+  final LegacyGrpcConnect _grpcConnect;
   final SharedPreferencesGateway _sharedPreferencesGateway;
 
   // Utility instances.
@@ -111,20 +109,8 @@ final class ChatServiceImpl implements ChatService {
   final Queue<UploadTask> _uploadQueue = Queue<UploadTask>();
   bool _isUploading = false;
 
-  /// Sends currently in flight, keyed by requestId. The backend does NOT
-  /// deduplicate requests, so the client must never put the same requestId
-  /// on the wire twice concurrently (double tap, app-level retry racing a
-  /// slow ack) — a repeated call re-attaches to the pending send instead.
-  final Map<String, Future<DialogMessageResponse>> _inFlightSends = {};
-
-  /// Recently seen server message ids. The backend may deliver the same
-  /// message more than once (and does not deduplicate), so pushed updates
-  /// are filtered client-side before they reach the UI.
-  final LinkedHashSet<int> _seenMessageIds = LinkedHashSet<int>();
-  static const int _seenMessageIdsLimit = 1024;
-
   // Constructor for initializing the chat service with the required dependencies.
-  ChatServiceImpl(
+  LegacyChatServiceImpl(
     this._grpcChannel,
     this._grpcConnect,
     this._sharedPreferencesGateway,
@@ -255,8 +241,7 @@ final class ChatServiceImpl implements ChatService {
 
     try {
       final response = await _grpcConnect.responseStream
-          .firstWhere((response) => response.id == requestId)
-          .timeout(const Duration(seconds: 30));
+          .firstWhere((response) => response.id == requestId);
 
       log.info('Received response for chat dialogs request ID: $requestId');
 
@@ -363,8 +348,7 @@ final class ChatServiceImpl implements ChatService {
 
     try {
       final response = await _grpcConnect.responseStream
-          .firstWhere((response) => response.id == requestId)
-          .timeout(const Duration(seconds: 30));
+          .firstWhere((response) => response.id == requestId);
 
       log.info('Received response for chat dialogs request ID: $requestId');
       if (response.data.canUnpackInto(ChatList())) {
@@ -1046,13 +1030,6 @@ final class ChatServiceImpl implements ChatService {
       (update) async {
         try {
           final chatId = update.message.chat.id;
-
-          if (_markSeenAndCheckDuplicate(update.message.id.toInt())) {
-            log.info(
-                'Skipping duplicate message ${update.message.id} in chat: $chatId');
-            return;
-          }
-
           final onNewMessageController = _onNewMessageControllers[chatId];
 
           if (onNewMessageController != null) {
@@ -1159,25 +1136,6 @@ final class ChatServiceImpl implements ChatService {
     required DialogMessageRequest message,
     required String chatId,
     int? timeout,
-  }) {
-    final existing = _inFlightSends[message.requestId];
-    if (existing != null) {
-      log.info(
-          'Send for requestId ${message.requestId} is already in flight, reusing it');
-      return existing;
-    }
-
-    final send =
-        _doSendMessage(message: message, chatId: chatId, timeout: timeout);
-    _inFlightSends[message.requestId] = send;
-
-    return send.whenComplete(() => _inFlightSends.remove(message.requestId));
-  }
-
-  Future<DialogMessageResponse> _doSendMessage({
-    required DialogMessageRequest message,
-    required String chatId,
-    int? timeout,
   }) async {
     try {
       final userId = await _sharedPreferencesGateway.readUserId();
@@ -1188,15 +1146,14 @@ final class ChatServiceImpl implements ChatService {
       final request = await _buildSendMessageRequest(
           message, userId ?? '', messageType, message.uploadFile);
 
-      await _grpcConnect.sendRequest(request);
+      _grpcConnect.sendRequest(request);
 
       return await _sendMessageResponse(
         message.requestId,
         userId ?? '',
         _handleSendMessageResponse,
         _handleSendMessageError,
-        timeout: _effectiveTimeout(timeout),
-      );
+      ).timeout(Duration(seconds: timeout ?? 30));
     } on GrpcError catch (err) {
       log.severe("GRPC Error on sendMessage: ${err.message}");
 
@@ -1226,44 +1183,21 @@ final class ChatServiceImpl implements ChatService {
     String requestId,
     String userId,
     SendMessageResponseHandler handleResponse,
-    SendMessageErrorHandler handleError, {
-    required Duration timeout,
-  }) async {
+    SendMessageErrorHandler handleError,
+  ) {
     final completer = Completer<DialogMessageResponse>();
+    StreamSubscription<portal.Response>? streamSubscription;
 
-    final streamSubscription = _grpcConnect.responseStream
+    streamSubscription = _grpcConnect.responseStream
         .where((response) => response.id == requestId)
         .listen(
           (response) => handleResponse(response, completer, userId),
           onError: (error) => handleError(error, completer, requestId),
+          onDone: () => streamSubscription?.cancel(),
           cancelOnError: true,
         );
 
-    try {
-      return await completer.future.timeout(timeout);
-    } finally {
-      // Always release the subscription: without this every sent message
-      // leaves a permanent listener scanning all future responses.
-      await streamSubscription.cancel();
-    }
-  }
-
-  /// Normalizes a caller-provided timeout: null or non-positive values fall
-  /// back to 30 seconds (a zero timeout would fail every send instantly).
-  Duration _effectiveTimeout(int? timeout) =>
-      Duration(seconds: (timeout == null || timeout <= 0) ? 30 : timeout);
-
-  /// Records [messageId] as seen and reports whether it was seen before.
-  /// The set is bounded: the oldest ids are evicted past
-  /// [_seenMessageIdsLimit], which is far beyond any realistic burst of
-  /// duplicates arriving out of order.
-  bool _markSeenAndCheckDuplicate(int messageId) {
-    if (messageId == 0) return false;
-    if (!_seenMessageIds.add(messageId)) return true;
-    if (_seenMessageIds.length > _seenMessageIdsLimit) {
-      _seenMessageIds.remove(_seenMessageIds.first);
-    }
-    return false;
+    return completer.future;
   }
 
   /// Handles the response when a message is sent.
@@ -1276,15 +1210,8 @@ final class ChatServiceImpl implements ChatService {
     Completer<DialogMessageResponse> completer,
     String userId,
   ) async {
-    // A duplicate response for an already answered request must be ignored,
-    // otherwise completing twice throws a StateError.
-    if (completer.isCompleted) return;
-
     if (response.data.canUnpackInto(UpdateNewMessage())) {
       final unpackedMessage = response.data.unpackInto(UpdateNewMessage());
-      // The ack'd message may also arrive as a pushed update; mark it as
-      // seen so it is not emitted to onNewMessage a second time.
-      _markSeenAndCheckDuplicate(unpackedMessage.message.id.toInt());
       final messageType =
           MessageHelper.determineMessageTypeResponse(unpackedMessage);
 
@@ -1365,8 +1292,6 @@ final class ChatServiceImpl implements ChatService {
     Completer<DialogMessageResponse> completer,
     String requestId,
   ) {
-    if (completer.isCompleted) return;
-
     final errorMessage =
         error is GrpcError ? error.message : 'Unknown error occurred';
     log.severe("Error on handling message response: $errorMessage");
@@ -1395,10 +1320,7 @@ final class ChatServiceImpl implements ChatService {
     log.info(
         "Building request for sending a message. User ID: $userId, Message Type: $messageType, Message Content: ${message.content}");
 
-    // The request id doubles as an idempotency key: the server can use it to
-    // deduplicate retries of the same message.
     final baseRequest = SendMessageRequest(
-      id: message.requestId,
       text: message.content,
     );
 
@@ -1635,30 +1557,6 @@ final class ChatServiceImpl implements ChatService {
     required Postback postback,
     required String requestId,
     int? timeout,
-  }) {
-    final existing = _inFlightSends[requestId];
-    if (existing != null) {
-      log.info(
-          'Postback for requestId $requestId is already in flight, reusing it');
-      return existing;
-    }
-
-    final send = _doSendPostback(
-      chatId: chatId,
-      postback: postback,
-      requestId: requestId,
-      timeout: timeout,
-    );
-    _inFlightSends[requestId] = send;
-
-    return send.whenComplete(() => _inFlightSends.remove(requestId));
-  }
-
-  Future<DialogMessageResponse> _doSendPostback({
-    required String chatId,
-    required Postback postback,
-    required String requestId,
-    int? timeout,
   }) async {
     try {
       final userId = await _sharedPreferencesGateway.readUserId();
@@ -1671,15 +1569,14 @@ final class ChatServiceImpl implements ChatService {
         requestId: requestId,
       );
 
-      await _grpcConnect.sendRequest(request);
+      _grpcConnect.sendRequest(request);
 
       return await _sendPostbackResponse(
         requestId,
         userId ?? '',
         _handleSendPostbackResponse,
         _handleSendPostbackError,
-        timeout: _effectiveTimeout(timeout),
-      );
+      ).timeout(Duration(seconds: timeout ?? 30));
     } on GrpcError catch (err) {
       log.severe("GRPC Error on sendPostback: ${err.message}");
 
@@ -1724,24 +1621,21 @@ final class ChatServiceImpl implements ChatService {
     String requestId,
     String userId,
     SendMessageResponseHandler handleResponse,
-    SendMessageErrorHandler handleError, {
-    required Duration timeout,
-  }) async {
+    SendMessageErrorHandler handleError,
+  ) {
     final completer = Completer<DialogMessageResponse>();
+    StreamSubscription<portal.Response>? streamSubscription;
 
-    final streamSubscription = _grpcConnect.responseStream
+    streamSubscription = _grpcConnect.responseStream
         .where((response) => response.id == requestId)
         .listen(
           (response) => handleResponse(response, completer, userId),
           onError: (error) => handleError(error, completer, requestId),
+          onDone: () => streamSubscription?.cancel(),
           cancelOnError: true,
         );
 
-    try {
-      return await completer.future.timeout(timeout);
-    } finally {
-      await streamSubscription.cancel();
-    }
+    return completer.future;
   }
 
   Future<void> _handleSendPostbackResponse(
@@ -1749,11 +1643,8 @@ final class ChatServiceImpl implements ChatService {
     Completer<DialogMessageResponse> completer,
     String userId,
   ) async {
-    if (completer.isCompleted) return;
-
     if (response.data.canUnpackInto(UpdateNewMessage())) {
       final unpackedMessage = response.data.unpackInto(UpdateNewMessage());
-      _markSeenAndCheckDuplicate(unpackedMessage.message.id.toInt());
       final messageType =
           MessageHelper.determineMessageTypeResponse(unpackedMessage);
 
@@ -1803,8 +1694,6 @@ final class ChatServiceImpl implements ChatService {
     Completer<DialogMessageResponse> completer,
     String requestId,
   ) {
-    if (completer.isCompleted) return;
-
     final errorMessage =
         error is GrpcError ? error.message : 'Unknown error occurred';
     log.severe("Error on handling postback response: $errorMessage");

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:grpc/grpc.dart';
 import 'package:injectable/injectable.dart';
 import 'package:logging/logging.dart';
-import 'package:retry/retry.dart';
 import 'package:webitel_portal_sdk/src/data/builder/call_options.dart';
 import 'package:webitel_portal_sdk/src/generated/portal/customer.pbgrpc.dart';
 import 'package:webitel_portal_sdk/src/generated/portal/media.pbgrpc.dart';
@@ -17,8 +16,10 @@ class GrpcChannel {
   // Media storage client stub.
   late MediaStorageClient _mediaStorageStub;
 
-  // gRPC channel.
-  late ClientChannel _channel;
+  // gRPC channel. Created once per [init]; transport-level reconnection is
+  // handled internally by grpc-dart with exponential backoff, so the channel
+  // must never be recreated on connection failures.
+  ClientChannel? _channel;
 
   // Access token for authentication.
   late String _accessToken = '';
@@ -43,6 +44,10 @@ class GrpcChannel {
 
   // Stream controller for connection state changes.
   final _streamControllerState = StreamController<ConnectionState>();
+
+  // Subscription to the current channel's state changes; cancelled before
+  // the channel is replaced so a stale channel cannot emit into the stream.
+  StreamSubscription<ConnectionState>? _stateSubscription;
 
   // Logger for logging connection state changes and errors.
   final Logger _logger = Logger('GrpcChannel');
@@ -74,33 +79,21 @@ class GrpcChannel {
     _appToken = appToken;
     _userAgent = userAgent;
     _cert = cert;
-    await _createChannel(
-      url: url,
-      deviceId: deviceId,
-      appToken: appToken,
-      userAgent: _userAgent,
-      port: port,
-      secure: secure,
-      cert: _cert,
-    );
+
+    await _shutdownChannel();
+    _createChannel();
+    _createStubs();
   }
 
-  /// Sets the access token and reinitializes the channel.
+  /// Sets the access token and rebuilds the client stubs.
   ///
-  /// [accessToken] The new access token.
+  /// The channel itself is reused: the token only affects per-call metadata,
+  /// so recreating the underlying HTTP/2 connection is not needed.
   Future<void> setAccessToken(String accessToken) async {
     _accessToken = accessToken;
-    _logger
-        .info('Setting new access token and reinitializing the gRPC channel.');
+    _logger.info('Setting new access token and rebuilding client stubs.');
 
-    await _createChannel(
-      url: _url,
-      port: _port,
-      secure: _secure,
-      deviceId: _deviceId,
-      appToken: _appToken,
-      userAgent: _userAgent,
-    );
+    _createStubs();
   }
 
   /// Gets the customer client stub.
@@ -110,111 +103,70 @@ class GrpcChannel {
   MediaStorageClient get mediaStorageStub => _mediaStorageStub;
 
   /// Gets the gRPC channel.
-  ClientChannel get channel => _channel;
+  ClientChannel get channel => _channel!;
 
   /// Gets the stream controller for connection state changes.
   StreamController<ConnectionState> get stateStream => _streamControllerState;
 
-  /// Creates and initializes the gRPC channel and client stubs.
-  ///
-  /// [deviceId] The device ID to be included in the metadata.
-  /// [appToken] The application token for authentication.
-  /// [userAgent] The user agent string for the gRPC client.
-  /// [port] The port of the gRPC server.
-  /// [url] The URL of the gRPC server.
-  /// [secure] Indicates if the connection should be secure.
-  Future<void> _createChannel({
-    required String deviceId,
-    required String appToken,
-    required String userAgent,
-    required int port,
-    required String url,
-    required bool secure,
-    List<int>? cert,
-  }) async {
+  /// Creates the gRPC channel and subscribes to its state changes.
+  void _createChannel() {
     _logger.info(
         'Creating gRPC channel with the following parameters: URL: $_url, Port: $_port, Secure: $_secure, Device ID: $_deviceId, User Agent: $_userAgent');
 
-    // Create the gRPC channel with the specified options.
     _channel = ClientChannel(
-      url,
-      port: port,
+      _url,
+      port: _port,
       options: ChannelOptions(
-        credentials: secure
-            ? ChannelCredentials.secure(certificates: cert)
+        credentials: _secure
+            ? ChannelCredentials.secure(certificates: _cert)
             : ChannelCredentials.insecure(),
-        userAgent: userAgent,
-        idleTimeout: Duration(minutes: 5),
-        connectionTimeout: Duration(minutes: 50),
+        userAgent: _userAgent,
+        connectTimeout: Duration(seconds: 15),
         keepAlive: ClientKeepAliveOptions(
-          pingInterval: Duration(seconds: 3),
-          timeout: Duration(seconds: 2),
+          // gRPC servers reject client pings arriving more often than their
+          // keepalive enforcement policy allows (5 minutes by default) with
+          // GOAWAY too_many_pings, which kills the connection. Do not lower
+          // this without lowering the server-side policy first.
+          pingInterval: Duration(minutes: 5),
+          timeout: Duration(seconds: 20),
         ),
       ),
     );
 
-    // Listen for connection state changes and handle reconnections.
-    _channel.onConnectionStateChanged.listen((state) {
+    _stateSubscription = _channel!.onConnectionStateChanged.listen((state) {
       _logger.info('Connection state changed: $state');
       _streamControllerState.add(state);
-
-      if (state == ConnectionState.shutdown) {
-        _logger.warning(
-            'Connection has been shutdown. Attempting to reconnect...');
-
-        _reconnect();
-      }
     });
-
-    // Initialize customer client stub with call options.
-    _customerStub = CustomerClient(
-      _channel,
-      options: CallOptionsBuilder()
-          .setDeviceId(deviceId)
-          .setClientToken(appToken)
-          .setAccessToken(_accessToken)
-          .build(),
-    );
-
-    _logger.info('Customer client stub initialized successfully.');
-
-    // Initialize media storage client stub with call options.
-    _mediaStorageStub = MediaStorageClient(
-      _channel,
-      options: CallOptionsBuilder()
-          .setDeviceId(deviceId)
-          .setClientToken(appToken)
-          .setAccessToken(_accessToken)
-          .build(),
-    );
-
-    _logger.info('Media storage client stub initialized successfully.');
   }
 
-  /// Attempts to reconnect to the gRPC server with retry strategy.
-  Future<void> _reconnect() async {
-    try {
-      await retry(
-        () async {
-          await _createChannel(
-            url: _url,
-            port: _port,
-            secure: _secure,
-            deviceId: _deviceId,
-            appToken: _appToken,
-            userAgent: _userAgent,
-          );
+  /// (Re)creates the client stubs with the current metadata.
+  void _createStubs() {
+    final options = CallOptionsBuilder()
+        .setDeviceId(_deviceId)
+        .setClientToken(_appToken)
+        .setAccessToken(_accessToken)
+        .build();
 
-          _logger.info(
-              'Reconnection successful with the following parameters: URL: $_url, Port: $_port, Secure: $_secure, Device ID: $_deviceId, User Agent: $_userAgent');
-        },
-        retryIf: (err) => err is GrpcError,
-        onRetry: (err) => _logger.warning(
-            'Retrying due to GrpcError while reconnecting to gRPC server: ${err.toString()}'),
-      );
-    } catch (err) {
-      _logger.severe(
-          'Maximum reconnection attempts reached. Unable to reconnect to the gRPC server. Error: $err');
+    _customerStub = CustomerClient(_channel!, options: options);
+    _mediaStorageStub = MediaStorageClient(_channel!, options: options);
+
+    _logger.info('Client stubs initialized successfully.');
+  }
+
+  /// Shuts down the current channel, if any, releasing its sockets and
+  /// detaching its state listener.
+  Future<void> _shutdownChannel() async {
+    await _stateSubscription?.cancel();
+    _stateSubscription = null;
+
+    final channel = _channel;
+    _channel = null;
+    if (channel != null) {
+      try {
+        await channel.shutdown();
+      } catch (err) {
+        _logger.warning('Error while shutting down previous channel: $err');
+      }
     }
   }
 }

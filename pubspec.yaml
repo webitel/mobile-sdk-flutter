@@ -23,6 +23,8 @@ dependencies:
 
 
 dev_dependencies:
+  flutter_test:
+    sdk: flutter
   lints: ^4.0.0
   json_serializable: ^6.8.0
   injectable_generator: ^2.6.2
