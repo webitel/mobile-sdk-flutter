@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -405,6 +406,183 @@ void main() {
 
       expect(events.skip(1).expand((e) => e.data).toList(),
           content.sublist(400));
+    });
+
+    // Serves [content] honouring `Range: bytes=<start>-`.
+    void serveFile(List<int> content) {
+      server.routes['GET /portal/files/file-1'] = (request, body) async {
+        final range = request.headers.value(HttpHeaders.rangeHeader);
+        final start =
+            range == null ? 0 : int.parse(range.split('=').last.split('-').first);
+        request.response
+          ..statusCode =
+              start > 0 ? HttpStatus.partialContent : HttpStatus.ok
+          ..headers.contentType = ContentType('image', 'png')
+          ..headers.set(HttpHeaders.contentRangeHeader,
+              'bytes $start-${content.length - 1}/${content.length}')
+          ..add(content.sublist(start));
+        await request.response.close();
+      };
+    }
+
+    test('the file is complete on disk as soon as onData is done', () async {
+      final content = List<int>.generate(300000, (i) => i % 256);
+      serveFile(content);
+      final savePath = '${tmp.path}/out.png';
+
+      final download =
+          chatService.downloadFile(fileId: 'file-1', savePath: savePath);
+      await download.onData.stream.drain<void>();
+
+      expect(File(savePath).readAsBytesSync(), content,
+          reason: 'onData used to close before the file sink was flushed');
+    });
+
+    test('a download resumed from an offset appends to the saved bytes',
+        () async {
+      final content = List<int>.generate(1000, (i) => i % 256);
+      serveFile(content);
+      final savePath = '${tmp.path}/out.png';
+      File(savePath).writeAsBytesSync(content.sublist(0, 400));
+
+      final download = chatService.downloadFile(
+          fileId: 'file-1', savePath: savePath, offset: 400);
+      await download.onData.stream.drain<void>();
+
+      expect(File(savePath).readAsBytesSync(), content,
+          reason: 'resume used to truncate the bytes saved before');
+      expect(download.offset, 1000);
+    });
+
+    test('an interrupted download continues from the received offset',
+        () async {
+      final content = List<int>.generate(1000, (i) => i % 256);
+      var calls = 0;
+      server.routes['GET /portal/files/file-1'] = (request, body) async {
+        calls++;
+        if (calls == 1) {
+          // Promise the whole file, send half, drop the connection.
+          request.response
+            ..contentLength = content.length
+            ..headers.set(HttpHeaders.contentRangeHeader,
+                'bytes 0-${content.length - 1}/${content.length}');
+          final socket = await request.response.detachSocket();
+          socket.add(content.sublist(0, 500));
+          await socket.flush();
+          socket.destroy();
+          return;
+        }
+        final range = request.headers.value(HttpHeaders.rangeHeader)!;
+        final start = int.parse(range.split('=').last.split('-').first);
+        request.response
+          ..statusCode = HttpStatus.partialContent
+          ..headers.set(HttpHeaders.contentRangeHeader,
+              'bytes $start-${content.length - 1}/${content.length}')
+          ..add(content.sublist(start));
+        await request.response.close();
+      };
+      final savePath = '${tmp.path}/out.png';
+
+      final download =
+          chatService.downloadFile(fileId: 'file-1', savePath: savePath);
+      await download.onData.stream.drain<void>();
+
+      expect(calls, 2);
+      expect(server.httpCalls.last.headers.value(HttpHeaders.rangeHeader),
+          'bytes=500-');
+      expect(File(savePath).readAsBytesSync(), content);
+    });
+
+    test('pause flushes the received bytes and resume appends the rest',
+        () async {
+      final content = List<int>.generate(1000, (i) => i % 256);
+      final release = Completer<void>();
+      server.routes['GET /portal/files/file-1'] = (request, body) async {
+        final range = request.headers.value(HttpHeaders.rangeHeader);
+        if (range == null) {
+          // First request: half the file, then hold the connection open.
+          request.response.contentLength = content.length;
+          final socket = await request.response.detachSocket();
+          socket.add(content.sublist(0, 500));
+          await socket.flush();
+          await release.future;
+          socket.destroy();
+          return;
+        }
+        final start = int.parse(range.split('=').last.split('-').first);
+        request.response
+          ..statusCode = HttpStatus.partialContent
+          ..headers.set(HttpHeaders.contentRangeHeader,
+              'bytes $start-${content.length - 1}/${content.length}')
+          ..add(content.sublist(start));
+        await request.response.close();
+      };
+      final savePath = '${tmp.path}/out.png';
+
+      final download =
+          chatService.downloadFile(fileId: 'file-1', savePath: savePath);
+      final done = download.onData.stream.drain<void>();
+      while (download.offset < 500) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      await download.pause();
+      expect(File(savePath).readAsBytesSync(), content.sublist(0, 500));
+
+      await download.resume();
+      await done;
+      release.complete();
+
+      expect(File(savePath).readAsBytesSync(), content);
+    });
+
+    test('cancel stops the active upload and the queue moves on', () async {
+      final file = File('${tmp.path}/a.png')..writeAsBytesSync([1, 2, 3]);
+      final hold = Completer<void>();
+      var created = 0;
+      server.routes['POST /portal/files'] = (request, body) async {
+        created++;
+        request.response.write('{"upload_id":"up-$created"}');
+        await request.response.close();
+      };
+      server.routes['PUT /portal/files'] = (request, body) async {
+        if (request.uri.queryParameters['uploadId'] == 'up-1') {
+          await hold.future; // the first upload never finishes by itself
+        }
+        request.response.write(jsonEncode({
+          'file_id': 'file-${request.uri.queryParameters['uploadId']}',
+          'name': 'a.png',
+          'mime_type': 'image/png',
+          'size': body.length,
+        }));
+        try {
+          await request.response.close();
+        } on Object {
+          // The client aborted.
+        }
+      };
+
+      final first = chatService.uploadFile(
+          mediaType: 'image/png', mediaName: 'a.png', file: file);
+      final skipped = chatService.uploadFile(
+          mediaType: 'image/png', mediaName: 'a.png', file: file);
+      final last = chatService.uploadFile(
+          mediaType: 'image/png', mediaName: 'a.png', file: file);
+      final firstEvents = first.onProgress.stream.toList();
+      final lastEvents = last.onProgress.stream.toList();
+
+      while (created < 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      await skipped.cancel(); // still queued: must never reach the server
+      await first.cancel(); // active: must free the queue
+
+      final events = await lastEvents.timeout(const Duration(seconds: 5));
+      expect(events.last.id, 'file-up-2',
+          reason: 'the cancelled queued upload must not be sent');
+      expect(created, 2);
+      await firstEvents.timeout(const Duration(seconds: 5));
+      hold.complete();
     });
   });
 

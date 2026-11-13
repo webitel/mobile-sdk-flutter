@@ -7,7 +7,6 @@ import 'package:grpc/grpc.dart';
 import 'package:grpc/grpc_or_grpcweb.dart';
 import 'package:injectable/injectable.dart';
 import 'package:protobuf/well_known_types/google/protobuf/any.pb.dart';
-import 'package:retry/retry.dart';
 import 'package:uuid/uuid.dart';
 import 'package:webitel_portal_sdk/src/data/builder/error_dialog_message.dart';
 import 'package:webitel_portal_sdk/src/data/builder/messages_list_message.dart';
@@ -110,6 +109,9 @@ final class ChatServiceImpl implements ChatService {
   // Queue and state flag for uploads
   final Queue<UploadTask> _uploadQueue = Queue<UploadTask>();
   bool _isUploading = false;
+
+  // The upload being transferred now; null while the queue is idle.
+  UploadTask? _activeUpload;
 
   /// Sends currently in flight, keyed by requestId. The backend does NOT
   /// deduplicate requests, so the client must never put the same requestId
@@ -454,19 +456,25 @@ final class ChatServiceImpl implements ChatService {
     String? pid,
     int? offset,
     required StreamController<UploadResponse> controller,
+    required UploadImpl upload,
   }) {
     final completer = Completer<void>();
-    _uploadQueue.add(
-      UploadTask(
-        mediaType: mediaType,
-        mediaName: mediaName,
-        file: file,
-        pid: pid,
-        offset: offset,
-        controller: controller,
-        completer: completer,
-      ),
+    final task = UploadTask(
+      mediaType: mediaType,
+      mediaName: mediaName,
+      file: file,
+      pid: pid,
+      offset: offset,
+      controller: controller,
+      upload: upload,
+      completer: completer,
     );
+    _uploadQueue.add(task);
+
+    // A queued upload is just dropped; the active one frees the queue.
+    upload.onCancelled = () {
+      if (!_uploadQueue.remove(task)) _finishUpload(task);
+    };
 
     // Start processing the queue if not already uploading
     if (!_isUploading) {
@@ -478,11 +486,13 @@ final class ChatServiceImpl implements ChatService {
   void _processQueue() {
     if (_uploadQueue.isEmpty) {
       _isUploading = false;
+      _activeUpload = null;
       return;
     }
 
     _isUploading = true;
     final task = _uploadQueue.removeFirst();
+    _activeUpload = task;
 
     final subscription = _grpcChannel.mediaStorageStub
         .upload(
@@ -532,22 +542,25 @@ final class ChatServiceImpl implements ChatService {
         );
         task.controller.addError(callError);
         task.controller.close();
-        _processQueue(); // Continue to the next task in the queue
+        _finishUpload(task);
       },
       onDone: () {
         log.info('Upload stream closed.');
         task.controller.close();
-        _processQueue(); // Continue to the next task in the queue
+        _finishUpload(task);
       },
       cancelOnError: true,
     );
 
-    // Set the subscription in the upload object to manage cancellation
-    final upload = UploadImpl(
-      onProgress: task.controller,
-      offset: task.offset ?? 0,
-    );
-    upload.setSubscription(subscription);
+    // The caller holds this very object, so its cancel() stops this stream.
+    task.upload?.setSubscription(subscription);
+  }
+
+  /// Moves the queue on once [task] completed, failed or was cancelled.
+  void _finishUpload(UploadTask task) {
+    if (!identical(_activeUpload, task)) return;
+    _activeUpload = null;
+    _processQueue();
   }
 
   @override
@@ -561,6 +574,10 @@ final class ChatServiceImpl implements ChatService {
     // Create a StreamController for managing upload progress
     final StreamController<UploadResponse> controller =
         StreamController<UploadResponse>();
+    final upload = UploadImpl(
+      onProgress: controller,
+      offset: 0,
+    );
 
     _addToUploadQueue(
       mediaType: mediaType,
@@ -569,12 +586,10 @@ final class ChatServiceImpl implements ChatService {
       pid: pid,
       offset: offset,
       controller: controller,
+      upload: upload,
     );
 
-    return UploadImpl(
-      onProgress: controller,
-      offset: 0,
-    );
+    return upload;
   }
 
   Stream<UploadRequest> _uploadMediaStream({
@@ -743,7 +758,39 @@ final class ChatServiceImpl implements ChatService {
     final file = File(download.savePath);
     file.createSync(recursive: true);
 
-    // Create the media stream from the gRPC call
+    // A resumed download appends to the bytes already saved; a new one
+    // starts from an empty file.
+    final sink = file.openWrite(
+      mode: offset > 0 ? FileMode.writeOnlyAppend : FileMode.writeOnly,
+    );
+    Future<void>? closing;
+    Future<void> closeSink() =>
+        closing ??= sink.flush().then((_) => sink.close());
+    download.setRelease(closeSink);
+
+    _listenToMedia(
+      fileId: fileId,
+      offset: offset,
+      controller: controller,
+      download: download,
+      sink: sink,
+      closeSink: closeSink,
+      file: null,
+      attempt: 0,
+    );
+  }
+
+  /// Opens a `GetFile` stream from [offset] and attaches it to [download].
+  void _listenToMedia({
+    required String fileId,
+    required fixnum.Int64 offset,
+    required StreamController<MediaFileResponse> controller,
+    required DownloadImpl download,
+    required IOSink sink,
+    required Future<void> Function() closeSink,
+    required MediaFileResponse? file,
+    required int attempt,
+  }) {
     final mediaStream = _grpcChannel.mediaStorageStub.getFile(
       GetFileRequest(
         fileId: fileId,
@@ -751,40 +798,67 @@ final class ChatServiceImpl implements ChatService {
       ),
     );
 
-    // Set up the subscription to handle the media stream
     final subscription = _setupSubscription(
       mediaStream: mediaStream,
       fileId: fileId,
       offset: offset,
       controller: controller,
       download: download,
-      targetFile: file,
+      sink: sink,
+      closeSink: closeSink,
+      file: file,
+      attempt: attempt,
     );
 
-    // Assign the subscription to the download object
     download.setSubscription(subscription);
   }
 
+  /// How many times an interrupted download is continued from its offset
+  /// before the error is reported.
+  static const int _maxDownloadRetries = 3;
+
   /// Sets up the subscription to handle the media stream.
   ///
-  /// [mediaStream] The response stream of media files from the server.
-  /// [fileId] The ID of the file being downloaded.
-  /// [offset] The starting point for the download (in bytes).
-  /// [controller] The StreamController for media file responses.
-  /// [download] The DownloadImpl object managing the download.
+  /// An interrupted transfer (an error or an early end) is continued from the
+  /// received offset up to [_maxDownloadRetries] times; the file is flushed
+  /// before [controller] is closed, so it is complete once `onData` is done.
   ///
   /// Returns the StreamSubscription for the media stream.
   StreamSubscription<MediaFile> _setupSubscription({
-    required ResponseStream<MediaFile> mediaStream,
+    required Stream<MediaFile> mediaStream,
     required String fileId,
     required fixnum.Int64 offset,
     required StreamController<MediaFileResponse> controller,
     required DownloadImpl download,
-    required File targetFile,
+    required IOSink sink,
+    required Future<void> Function() closeSink,
+    required MediaFileResponse? file,
+    required int attempt,
   }) {
-    MediaFileResponse? file;
+    bool isIncomplete() =>
+        file != null && offset < fixnum.Int64(file!.size ?? 0);
 
-    final sink = targetFile.openWrite(mode: FileMode.writeOnly);
+    // Continues the transfer after a short backoff; false when it gives up.
+    bool continueTransfer(Object reason) {
+      if (!isIncomplete() || attempt >= _maxDownloadRetries) return false;
+
+      log.warning(
+          "Download of '${file!.name}' interrupted at $offset bytes ($reason); continuing, attempt ${attempt + 1}.");
+      Future<void>.delayed(Duration(seconds: 1 << attempt), () {
+        if (download.isPaused || controller.isClosed) return;
+        _listenToMedia(
+          fileId: fileId,
+          offset: offset,
+          controller: controller,
+          download: download,
+          sink: sink,
+          closeSink: closeSink,
+          file: file,
+          attempt: attempt + 1,
+        );
+      });
+      return true;
+    }
 
     // Listen to the media stream
     return mediaStream.listen(
@@ -803,6 +877,8 @@ final class ChatServiceImpl implements ChatService {
               "Initialized download for file '${file!.name}' with ID '${file!.id}', expected size: ${file!.size} bytes.");
         }
 
+        if (mediaFile.data.isEmpty) return;
+
         // Add the received data to the file
         file!.bytes?.clear();
         file!.bytes?.addAll(mediaFile.data);
@@ -819,36 +895,21 @@ final class ChatServiceImpl implements ChatService {
         log.info(
             "Received ${mediaFile.data.length} bytes for file '${file!.name}'; Total received: $offset bytes.");
       },
-      onError: (err) async {
+      onError: (Object err) async {
         log.warning(
-            "GrpcError encountered while downloading file '${file?.name ?? "unknown"}': ${err.message}");
+            "Error while downloading file '${file?.name ?? "unknown"}': ${err is GrpcError ? err.message : err}");
 
-        // Attempt to resume the download if it was interrupted
-        if (file != null && offset < fixnum.Int64(file!.size ?? 0)) {
-          log.info(
-              "Attempting to resume file download for '${file!.name}' from offset $offset.");
+        if (err is GrpcError && continueTransfer(err.codeName)) return;
 
-          await for (var resumedFile in _downloadMediaFromOffset(
-            fileId: fileId,
-            file: file!,
-            offset: offset,
-            controller: controller,
-            download: download,
-            sink: sink,
-          )) {
-            controller.add(resumedFile);
-          }
-        } else {
-          log.warning("Failed to download file due to GrpcError: $err");
-
+        await closeSink();
+        if (!controller.isClosed) {
           controller.addError(err);
-          controller.close();
-          await sink.flush();
-          await sink.close();
+          unawaited(controller.close());
         }
       },
       onDone: () async {
-        // Close the controller when the download is complete
+        if (continueTransfer('stream ended early')) return;
+
         if (file != null && offset.toInt() == file!.size) {
           log.info(
               "Completed download for file ID: $fileId, Total bytes received: $offset.");
@@ -856,67 +917,11 @@ final class ChatServiceImpl implements ChatService {
           log.warning(
               "Download not complete for file ID: $fileId, total bytes received: $offset.");
         }
-        controller.close();
-        await sink.flush();
-        await sink.close();
+        // The file is complete on disk before listeners see the end.
+        await closeSink();
+        if (!controller.isClosed) unawaited(controller.close());
       },
       cancelOnError: true,
-    );
-  }
-
-  /// Resumes the download of media from the server if it was interrupted.
-  ///
-  /// [fileId] The ID of the file being downloaded.
-  /// [file] The MediaFileResponse object representing the file being downloaded.
-  /// [offset] The current offset in bytes of the download.
-  /// [controller] The StreamController for media file responses.
-  /// [download] The DownloadImpl object managing the download.
-  ///
-  /// Returns a stream of MediaFileResponse objects.
-  Stream<MediaFileResponse> _downloadMediaFromOffset({
-    required String fileId,
-    required MediaFileResponse file,
-    required fixnum.Int64 offset,
-    required StreamController<MediaFileResponse> controller,
-    required DownloadImpl download,
-    required IOSink sink,
-  }) async* {
-    await retry(
-      () async* {
-        // Create the resumed media stream from the gRPC call
-        final resumedMedia = _grpcChannel.mediaStorageStub.getFile(
-          GetFileRequest(
-            fileId: fileId,
-            offset: offset,
-          ),
-        );
-
-        // Listen to the resumed media stream
-        await for (MediaFile mediaFile in resumedMedia) {
-          file.bytes?.clear();
-          file.bytes?.addAll(mediaFile.data);
-          sink.add(mediaFile.data);
-          offset += mediaFile.data.length;
-
-          log.info(
-              "Resumed download, received ${mediaFile.data.length} bytes; Total resumed: $offset bytes.");
-
-          download.updateOffset(offset.toInt());
-
-          controller.add(file);
-          yield file;
-        }
-
-        log.info("Resumed and completed file download for '${file.name}'.");
-
-        controller.close();
-        await sink.flush();
-        await sink.close();
-      },
-      retryIf: (err) => err is GrpcError,
-      onRetry: (err) => log.warning(
-        "Retrying due to GrpcError while resuming download for file (ID: '${file.id}', Size: ${file.size} bytes) from offset $offset: ${err.toString()}",
-      ),
     );
   }
 

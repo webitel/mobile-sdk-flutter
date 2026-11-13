@@ -163,8 +163,6 @@ void main() {
       final download =
           dialog.downloadFile(fileId: stored.id!, savePath: savePath);
       final chunks = await download.onData.stream.toList();
-      // The SDK closes onData before it flushes the file sink.
-      await Future<void>.delayed(const Duration(milliseconds: 500));
       final downloaded = File(savePath).readAsBytesSync();
       _log('downloadFile events=${chunks.length} '
           'reported size=${chunks.lastOrNull?.size} offset=${download.offset}');

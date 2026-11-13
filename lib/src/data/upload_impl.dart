@@ -26,6 +26,14 @@ final class UploadImpl implements Upload {
 
   late final ChatService _chatService;
 
+  bool _cancelled = false;
+
+  /// Called once when the upload is cancelled, so the queue can move on.
+  void Function()? onCancelled;
+
+  /// Whether [cancel] was called.
+  bool get isCancelled => _cancelled;
+
   /// Constructs an [UploadImpl] with the given media type, name, data stream, and data stream controller.
   ///
   /// [mediaType] is the type of the media being uploaded.
@@ -42,14 +50,19 @@ final class UploadImpl implements Upload {
 
   /// Cancels the upload operation.
   ///
-  /// Cancels the current subscription to stop the upload and closes the [onData] stream controller.
+  /// Stops the upload, or drops it from the queue if it has not started yet,
+  /// and closes [onProgress].
   @override
   Future<void> cancel() async {
-    if (subscription != null) {
-      await subscription!.cancel();
-      subscription = null; // Clear the subscription to indicate cancellation
-      onProgress.close(); // Close the stream controller to signal the end of the upload
-    }
+    if (_cancelled) return;
+    _cancelled = true;
+
+    final current = subscription;
+    subscription = null;
+    await current?.cancel();
+
+    if (!onProgress.isClosed) unawaited(onProgress.close());
+    onCancelled?.call();
   }
 
   /// Sets an error if an upload error occurs.

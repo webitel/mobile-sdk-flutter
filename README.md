@@ -320,6 +320,8 @@ dialog.uploadFile(file: file, mediaName: name, mediaType: type,
 ```
 
 Uploads are processed one at a time in the order they were started.
+`upload.cancel()` stops an upload in progress (or drops a queued one) and the
+next upload in the queue starts.
 
 ### Download
 
@@ -339,7 +341,13 @@ await download.pause();
 await download.resume(); // continues from download.offset
 ```
 
-The file is written to `savePath`; `onData` reports progress.
+The file is written to `savePath`; `onData` reports progress. When `onData` is
+done, the file is complete on disk.
+
+- `pause()` keeps the bytes received so far; `resume()` appends the rest.
+- Passing `offset` continues into an existing partial file at `savePath`.
+- A transfer interrupted by the network continues automatically from the
+  received offset (up to 3 attempts with backoff) before `onError` is reported.
 
 ## 9. Connection state and errors
 
