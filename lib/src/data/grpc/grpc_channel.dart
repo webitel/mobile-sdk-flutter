@@ -1,13 +1,22 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:grpc/grpc.dart';
 import 'package:injectable/injectable.dart';
 import 'package:logging/logging.dart';
 import 'package:webitel_portal_sdk/src/data/builder/call_options.dart';
+import 'package:webitel_portal_sdk/src/data/wss/portal_http.dart';
+import 'package:webitel_portal_sdk/src/data/wss/web_socket_stubs.dart';
+import 'package:webitel_portal_sdk/src/data/wss/web_socket_transport.dart';
+import 'package:webitel_portal_sdk/src/domain/entities/portal_transport.dart';
 import 'package:webitel_portal_sdk/src/generated/portal/customer.pbgrpc.dart';
 import 'package:webitel_portal_sdk/src/generated/portal/media.pbgrpc.dart';
 
 /// A singleton class to manage gRPC channel and client stubs.
+///
+/// With [PortalTransport.websocket] the same stubs are served by the WebSocket
+/// transport instead of gRPC (see [WebSocketCustomerClient] and
+/// [HttpMediaStorageClient]), so callers do not depend on the transport.
 @LazySingleton()
 class GrpcChannel {
   // Customer client stub.
@@ -20,6 +29,12 @@ class GrpcChannel {
   // handled internally by grpc-dart with exponential backoff, so the channel
   // must never be recreated on connection failures.
   ClientChannel? _channel;
+
+  // WebSocket transport; set instead of [_channel] for [PortalTransport.websocket].
+  WebSocketTransport? _webSocket;
+
+  // Transport selected on [init].
+  PortalTransport _transport = PortalTransport.grpc;
 
   // Access token for authentication.
   late String _accessToken = '';
@@ -63,6 +78,7 @@ class GrpcChannel {
   /// [userAgent] The user agent string for the gRPC client.
   /// [port] The port of the gRPC server.
   /// [secure] Indicates if the connection should be secure.
+  /// [transport] The transport used to talk to the portal.
   Future<void> init({
     required String url,
     required String appToken,
@@ -71,6 +87,7 @@ class GrpcChannel {
     required int port,
     required bool secure,
     List<int>? cert,
+    PortalTransport transport = PortalTransport.grpc,
   }) async {
     _url = url;
     _secure = secure;
@@ -81,7 +98,13 @@ class GrpcChannel {
     _cert = cert;
 
     await _shutdownChannel();
-    _createChannel();
+    _transport = transport;
+    switch (transport) {
+      case PortalTransport.grpc:
+        _createChannel();
+      case PortalTransport.websocket:
+        _createWebSocketTransport();
+    }
     _createStubs();
   }
 
@@ -139,6 +162,48 @@ class GrpcChannel {
     });
   }
 
+  /// Creates the WebSocket transport and subscribes to its state changes.
+  ///
+  /// [_port] is used as is, like for gRPC: insecure URLs should carry an
+  /// explicit port.
+  void _createWebSocketTransport() {
+    _logger.info(
+        'Creating WebSocket transport with the following parameters: URL: $_url, Port: $_port, Secure: $_secure, Device ID: $_deviceId, User Agent: $_userAgent');
+
+    final client = HttpClient(
+      context: _cert == null
+          ? null
+          : (SecurityContext()..setTrustedCertificatesBytes(_cert!)),
+    )
+      ..connectionTimeout = const Duration(seconds: 15)
+      ..userAgent = _userAgent;
+
+    final transport = WebSocketTransport(
+      http: PortalHttp(
+        baseUri: Uri(
+          scheme: _secure ? 'https' : 'http',
+          host: _url,
+          port: _port,
+          path: '/',
+        ),
+        userAgent: _userAgent,
+        client: client,
+      ),
+      wsUri: Uri(
+        scheme: _secure ? 'wss' : 'ws',
+        host: _url,
+        port: _port,
+        path: WebSocketTransport.wsPath,
+      ),
+    );
+    _webSocket = transport;
+
+    _stateSubscription = transport.onConnectionStateChanged.listen((state) {
+      _logger.info('Connection state changed: $state');
+      _streamControllerState.add(state);
+    });
+  }
+
   /// (Re)creates the client stubs with the current metadata.
   void _createStubs() {
     final options = CallOptionsBuilder()
@@ -147,8 +212,15 @@ class GrpcChannel {
         .setAccessToken(_accessToken)
         .build();
 
-    _customerStub = CustomerClient(_channel!, options: options);
-    _mediaStorageStub = MediaStorageClient(_channel!, options: options);
+    switch (_transport) {
+      case PortalTransport.grpc:
+        _customerStub = CustomerClient(_channel!, options: options);
+        _mediaStorageStub = MediaStorageClient(_channel!, options: options);
+      case PortalTransport.websocket:
+        _customerStub = WebSocketCustomerClient(_webSocket!, options: options);
+        _mediaStorageStub =
+            HttpMediaStorageClient(_webSocket!, options: options);
+    }
 
     _logger.info('Client stubs initialized successfully.');
   }
@@ -158,6 +230,16 @@ class GrpcChannel {
   Future<void> _shutdownChannel() async {
     await _stateSubscription?.cancel();
     _stateSubscription = null;
+
+    final webSocket = _webSocket;
+    _webSocket = null;
+    if (webSocket != null) {
+      try {
+        await webSocket.shutdown();
+      } catch (err) {
+        _logger.warning('Error while shutting down WebSocket transport: $err');
+      }
+    }
 
     final channel = _channel;
     _channel = null;

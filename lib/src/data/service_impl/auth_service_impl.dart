@@ -24,6 +24,7 @@ import 'package:webitel_portal_sdk/src/domain/entities/portal_response.dart'
     as res;
 import 'package:webitel_portal_sdk/src/domain/entities/portal_response_status.dart';
 import 'package:webitel_portal_sdk/src/domain/entities/portal_user.dart';
+import 'package:webitel_portal_sdk/src/domain/entities/portal_transport.dart';
 import 'package:webitel_portal_sdk/src/domain/services/auth_service.dart';
 import 'package:webitel_portal_sdk/src/generated/portal/account.pb.dart';
 import 'package:webitel_portal_sdk/src/generated/portal/customer.pb.dart';
@@ -54,6 +55,7 @@ class AuthServiceImpl implements AuthService {
   ///
   /// [url] The URL of the portal.
   /// [appToken] The application token for authentication.
+  /// [transport] The transport used to talk to the portal.
   ///
   /// Returns a [PortalClient] instance for interacting with the portal.
   @override
@@ -61,6 +63,7 @@ class AuthServiceImpl implements AuthService {
     required String url,
     required String appToken,
     List<int>? cert,
+    PortalTransport transport = PortalTransport.grpc,
   }) async {
     log.info(
         'Initializing gRPC channel for the portal URL: $url with the provided app token.');
@@ -125,7 +128,7 @@ class AuthServiceImpl implements AuthService {
       final (hostUrl, port) = (urlHelper.getUrl(), urlHelper.getPort());
 
       log.info(
-          'Initializing gRPC connection to the host URL: $hostUrl with port: $port. Secure connection: $secureConnection');
+          'Initializing ${transport.name} connection to the host URL: $hostUrl with port: $port. Secure connection: $secureConnection');
 
       log.info('Using device ID: $deviceId and user agent: $userAgentString');
 
@@ -138,6 +141,7 @@ class AuthServiceImpl implements AuthService {
         port: port,
         secure: secureConnection,
         cert: cert,
+        transport: transport,
       );
 
       return PortalClientImpl(

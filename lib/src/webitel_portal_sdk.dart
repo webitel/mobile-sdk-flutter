@@ -1,6 +1,7 @@
 import 'package:webitel_portal_sdk/src/data/logger/logger.dart';
 import 'package:webitel_portal_sdk/src/domain/entities/logger_level.dart';
 import 'package:webitel_portal_sdk/src/domain/entities/portal_client.dart';
+import 'package:webitel_portal_sdk/src/domain/entities/portal_transport.dart';
 import 'package:webitel_portal_sdk/src/domain/services/auth_service.dart';
 import 'package:webitel_portal_sdk/src/injection/injection.dart';
 
@@ -23,6 +24,9 @@ class WebitelPortalSdk {
   /// [url] The URL of the portal.
   /// [appToken] The application token for authentication.
   /// [loggerLevel] The level of logging to be used.
+  /// [cert] Optional PEM certificate(s) to trust instead of the system roots.
+  /// [transport] The transport used to talk to the portal: [PortalTransport.grpc]
+  /// (default) or [PortalTransport.websocket]. The rest of the API is identical.
   ///
   /// Returns a [PortalClient] instance for interacting with the portal.
   Future<PortalClient> initClient({
@@ -30,6 +34,7 @@ class WebitelPortalSdk {
     required String appToken,
     required LoggerLevel loggerLevel,
     List<int>? cert,
+    PortalTransport transport = PortalTransport.grpc,
   }) async {
     // Configure dependencies using dependency injection.
     configureDependencies();
@@ -45,6 +50,7 @@ class WebitelPortalSdk {
       url: url,
       appToken: appToken,
       cert: cert,
+      transport: transport,
     );
 
     return client;

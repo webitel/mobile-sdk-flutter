@@ -1,6 +1,7 @@
 import 'package:webitel_portal_sdk/src/domain/entities/portal_client.dart';
 import 'package:webitel_portal_sdk/src/domain/entities/portal_response.dart';
 import 'package:webitel_portal_sdk/src/domain/entities/portal_user.dart';
+import 'package:webitel_portal_sdk/src/domain/entities/portal_transport.dart';
 
 /// Interface for the authentication service, providing methods for user authentication,
 /// device registration, client initialization, and user information retrieval.
@@ -27,12 +28,14 @@ abstract interface class AuthService {
   ///
   /// [url] The URL of the portal.
   /// [appToken] The application token for authentication.
+  /// [transport] The transport used to talk to the portal.
   ///
   /// Returns a [PortalClient] instance for interacting with the portal.
   Future<PortalClient> initClient({
     required String url,
     required String appToken,
     List<int>? cert,
+    PortalTransport transport = PortalTransport.grpc,
   });
 
   /// Logs in a user with the provided credentials and user information.

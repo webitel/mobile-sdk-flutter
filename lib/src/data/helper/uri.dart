@@ -40,10 +40,12 @@ final class UrlHelper {
 
   /// Checks if the URL uses a secure scheme.
   ///
-  /// The method considers 'https' and 'grpcs' schemes as secure.
+  /// The method considers 'https', 'grpcs' and 'wss' schemes as secure.
   ///
   /// Returns `true` if the scheme is secure, otherwise `false`.
   bool isSecure() {
-    return _uri.scheme == 'https' || _uri.scheme == 'grpcs';
+    return _uri.scheme == 'https' ||
+        _uri.scheme == 'grpcs' ||
+        _uri.scheme == 'wss';
   }
 }
