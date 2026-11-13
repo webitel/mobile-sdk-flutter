@@ -1,6 +1,6 @@
 name: webitel_portal_sdk
 description: Webitel Portal SDK.
-version: 1.0.1
+version: 1.3.0
 
 environment:
   sdk: ^3.3.3

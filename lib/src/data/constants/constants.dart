@@ -12,7 +12,7 @@ final class Constants {
   static const String sdkName = 'webitel_portal_sdk';
 
   /// The version of the SDK.
-  static const String sdkVersion = '1.0.1';
+  static const String sdkVersion = '1.3.0';
 
   /// The platform name for Android.
   static const String androidPlatform = 'Android';
